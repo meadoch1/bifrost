@@ -595,8 +595,11 @@ ftp_command(Mod, Socket, State, Command, Arg) ->
                 {ok, NewState} ->
                     respond(Socket, 200),
                     {ok, NewState};
-                _ ->
+                {error, _} ->
                     respond(Socket, 550),
+                    {ok, State};
+                Resp ->
+                    respond(Socket, 200, "\"" ++ Resp ++ "\""),
                     {ok, State}
             end;
         _ ->
