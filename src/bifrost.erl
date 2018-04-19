@@ -40,6 +40,7 @@ init([HookModule, Opts]) ->
     SslCert = proplists:get_value(ssl_cert, Opts),
     CaSslCert = proplists:get_value(ca_ssl_cert, Opts),
     UTF8 = proplists:get_value(utf8, Opts),
+    CustomCommands = default(proplists:get_value(custom_commands, Opts), []),
     case listen_socket(Port, [{active, false}, {reuseaddr, true}, list]) of
         {ok, Listen} ->
             IpAddress = default(proplists:get_value(ip_address, Opts), get_socket_addr(Listen)),
@@ -49,7 +50,8 @@ init([HookModule, Opts]) ->
                                              ssl_key=SslKey,
                                              ssl_cert=SslCert,
                                              ssl_ca_cert=CaSslCert,
-                                             utf8=UTF8},
+                                             utf8=UTF8,
+                                             custom_commands=CustomCommands},
             Supervisor = proc_lib:spawn_link(?MODULE,
                                              supervise_connections,
                                              [HookModule:init(InitialState, Opts)]),
@@ -586,10 +588,22 @@ ftp_command(_Mod, Socket, State, size, _Arg) ->
     respond(Socket, 550),
     {ok, State};
 
-ftp_command(_, Socket, State, Command, _Arg) ->
-    error_logger:warning_report({bifrost, unrecognized_command, Command}),
-    respond(Socket, 500),
-    {ok, State}.
+ftp_command(Mod, Socket, State, Command, Arg) ->
+    case lists:member(Command, State#connection_state.custom_commands) of
+        true ->
+            case Mod:custom_command(State, Command, Arg) of
+                {ok, NewState} ->
+                    respond(Socket, 200),
+                    {ok, NewState};
+                _ ->
+                    respond(Socket, 550),
+                    {ok, State}
+            end;
+        _ ->
+            error_logger:warning_report({bifrost, unrecognized_command, Command}),
+            respond(Socket, 500),
+            {ok, State}
+    end.
 
 write_fun(Socket, Fun) ->
     case Fun(1024) of
